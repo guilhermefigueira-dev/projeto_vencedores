@@ -1,0 +1,172 @@
+CREATE OR REPLACE TABLE `dataplatform-nonprd.credit_negocios.concorrencia_base_if` AS 
+
+WITH 
+
+base_document_bank_dom as (
+  SELECT *
+  FROM `dataplatform-nonprd.credit_negocios.concorrencia_document_month_bank` 
+),
+
+base_equivalencia as (
+  SELECT *
+  FROM `dataplatform-nonprd.credit_negocios.tbl_equivalencia_if`
+),
+
+base_equivalencia_dom as (
+  SELECT *
+  FROM `dataplatform-nonprd.credit_negocios.tbl_equivalencia_if_dom`
+),
+
+base_peac_manipulada as (
+  SELECT *
+  FROM `dataplatform-nonprd.credit_negocios.tbl_peac_manipulada`
+),
+
+base_document_bank_pixout as (
+  SELECT 
+  mes,
+  source_document,
+  target_bank_ispb,
+  SUM(total_amount) as total_transacionado,
+  SUM(n_pix_out) as total_n_pix
+  FROM `dataplatform-prd.economic_research.pix_out_mensal_group_by_account_id_target_document`
+  WHERE 1=1 
+  AND tipo_relacao = "mesmo_documento"
+  GROUP BY source_document,target_bank_ispb,mes
+  ORDER BY source_document,mes,target_bank_ispb
+),
+
+base_document_bank_pixout_if as (
+  SELECT a.*,b.IF_adj
+  FROM base_document_bank_pixout as a
+  LEFT JOIN base_equivalencia as b
+  ON a.target_bank_ispb = b.ispb
+),
+
+base_document_bank_dom_if as (
+  SELECT a.*,b.IF_adj
+  FROM base_document_bank_dom as a 
+  LEFT JOIN base_equivalencia_dom as b
+  ON a.Bank_adj = b.Bank_adj
+),
+
+base_domicilio_peac as (
+  SELECT 
+    COALESCE(a.DocumentNumber,b.cpf_cnpj) as document,
+    COALESCE(a.month_year,b.mes_ano_solicitacao_outorga) as month_year,    
+    COALESCE(a.IF_adj,b.IF_adj) as IF_adj,
+    a.tpv_total as valor_total_domicilio,
+    b.valor_desembolsado as valor_total_peac_manipulado
+  FROM base_document_bank_dom_if AS a
+  FULL OUTER JOIN base_peac_manipulada AS b
+  ON a.DocumentNumber = b.cpf_cnpj
+  AND a.month_year = b.mes_ano_solicitacao_outorga
+  AND a.IF_adj = b.IF_adj
+),
+
+base_domicilio_peac_moneyout as (
+  SELECT 
+    COALESCE(a.document,b.source_document) as document,
+    COALESCE(PARSE_DATE('%m-%Y', a.month_year),DATE_TRUNC(b.mes, MONTH)) as month_year,    
+    COALESCE(a.IF_adj,b.IF_adj) as IF_adj,
+    a.valor_total_domicilio,
+    a.valor_total_peac_manipulado,
+    b.total_transacionado as  valor_total_moneyout
+  FROM base_domicilio_peac AS a
+  FULL OUTER JOIN base_document_bank_pixout_if AS b
+  ON a.document = b.source_document
+  AND PARSE_DATE('%m-%Y', a.month_year) = DATE_TRUNC(b.mes, MONTH)
+  AND a.IF_adj = b.IF_adj
+),
+
+base_domicilio_peac_moneyout_agrupada as (
+    SELECT 
+    document,
+    month_year,
+    IF_adj,
+  SUM(
+    COALESCE(CAST(valor_total_domicilio AS FLOAT64), 0) + 
+    COALESCE(CAST(valor_total_moneyout AS FLOAT64), 0) + 
+    COALESCE(CAST(valor_total_peac_manipulado AS FLOAT64), 0)
+  ) as valor_total
+  FROM base_domicilio_peac_moneyout
+  where IF_adj is not null
+  and LENGTH(document) = 14
+  GROUP BY document,month_year,IF_adj
+  ORDER BY document,month_year,IF_adj
+),
+
+todos_os_meses AS (
+  SELECT DISTINCT month_year FROM base_domicilio_peac_moneyout_agrupada
+),
+
+pares_existentes AS (
+  SELECT DISTINCT document, IF_adj FROM base_domicilio_peac_moneyout_agrupada
+),
+
+esqueleto AS (
+  SELECT p.document, p.IF_adj, m.month_year
+  FROM pares_existentes p
+  CROSS JOIN todos_os_meses m
+),
+
+base_preenchida AS (
+  SELECT 
+    e.document, 
+    e.IF_adj, 
+    e.month_year,
+    COALESCE(CAST(d.valor_total AS FLOAT64), 0) AS valor_total
+  FROM esqueleto e
+  LEFT JOIN base_domicilio_peac_moneyout_agrupada d 
+    ON e.document = d.document 
+    AND e.IF_adj = d.IF_adj 
+    AND e.month_year = d.month_year
+),
+
+base_preenchida_trimestral as(
+  SELECT 
+  *,
+  SUM(valor_total) OVER (
+    PARTITION BY document, IF_adj 
+    ORDER BY month_year
+    ROWS BETWEEN 2 PRECEDING AND CURRENT ROW
+  ) AS soma_trimestral
+  FROM base_preenchida
+  ORDER BY document, IF_adj, month_year
+),
+
+base_ranqueada AS (
+  SELECT 
+    *,
+    ROW_NUMBER() OVER (
+      PARTITION BY document, month_year 
+      ORDER BY soma_trimestral DESC, IF_adj ASC 
+    ) as rank_banco_principal
+  FROM base_preenchida_trimestral
+),
+
+base_ranqueada_main as(
+  SELECT 
+    * EXCEPT(rank_banco_principal)
+  FROM base_ranqueada
+  WHERE rank_banco_principal = 1
+  and document is not null
+  and month_year is not null
+),
+
+base_cadastrados AS (
+  SELECT
+  document,
+  ton_acquirer_active_30d,
+  stone_acquirer_active_30d
+  FROM
+    `dataplatform-prd.produto_segmento.monthly_produto_segmento`
+  WHERE 1=1
+    AND reference_month = "2025-12-01"
+    AND LENGTH(document) = 14
+)
+
+SELECT a.*,b.ton_acquirer_active_30d,b.stone_acquirer_active_30d
+FROM base_ranqueada_main AS a
+INNER JOIN base_cadastrados AS b
+ON a.document = b.document
