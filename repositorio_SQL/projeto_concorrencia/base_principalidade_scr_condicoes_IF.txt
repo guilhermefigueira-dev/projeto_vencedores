@@ -1,3 +1,5 @@
+--CONDIÇÕES DAS IF's CONCORRENTES OBTIDAS VIA SCR
+
 WITH 
 
 base_principalidade AS (
@@ -35,6 +37,7 @@ base_principalidade_scr_aggIF AS (
   IF_adj,
   esteira,
   COUNT(*) AS n_operacoes_scr,
+  SUM(desembolso_scr) AS desembolso_total_scr,
   AVG(desembolso_scr) AS desembolso_medio_scr,
   AVG(taxa_scr) AS taxa_media_scr,
   AVG(prazo_scr) AS prazo_medio_scr,
@@ -63,6 +66,7 @@ cross_esteira_bancos AS(
 SELECT 
 a.*,
 b.n_operacoes_scr,
+b.desembolso_total_scr,
 b.desembolso_medio_scr,
 b.prazo_medio_scr,
 b.taxa_media_scr 
@@ -71,6 +75,48 @@ LEFT JOIN base_principalidade_scr_aggIF AS b
 ON a.IF_adj = b.IF_adj
 AND a.esteira = b.esteira
 ORDER BY IF_adj, esteira
+
+--------------------------------------------------------------------------------------------
+
+--CONDIÇÕES DA STONE OBTIDAS VIA BOT
+
+WITH
+
+base_desembolso_stone AS( 
+  SELECT 
+  maximumTerm AS prazo_stone, 
+  InterestRate as taxa_stone, 
+  CreditAmount as desembolsado_stone, 
+  offerType
+  FROM
+    (SELECT *
+    FROM `dataplatform-prd.credit_business_intelligence.tbl_business_offer_tracker` 
+    WHERE 1=1
+    AND LoanDisbursementDate IS NOT NULL
+    QUALIFY ROW_NUMBER() OVER (PARTITION BY CustomerDocument ORDER BY LoanDisbursementDate ASC) = 1)
+  WHERE EXTRACT(YEAR FROM LoanDisbursementDate) = 2025
+  AND CustomerDocumentType = "CNPJ"
+)
+
+SELECT 
+COUNT(*) AS n_operacao,
+SUM(desembolsado_stone) AS total_desembolsado_stone,
+AVG(desembolsado_stone) AS media_desembolsado_stone,
+AVG(prazo_stone) AS media_prazo_stone,
+AVG(taxa_stone) AS media_taxa_stone,
+FROM base_desembolso_stone
+GROUP BY offerType
+
+
+
+
+
+
+
+
+
+
+
 
 
 
