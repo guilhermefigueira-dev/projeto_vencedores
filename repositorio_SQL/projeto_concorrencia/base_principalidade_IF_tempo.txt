@@ -1,0 +1,32 @@
+WITH 
+
+base_principalidade AS (
+  SELECT * FROM `dataplatform-nonprd.credit_negocios.concorrencia_base_if`
+  WHERE soma_trimestral > 0
+    AND month_year >= "2023-01-01"
+),
+
+agg_mensal AS (
+    SELECT 
+        month_year,
+        IF_adj,
+        COUNT(valor_total) AS n,
+        SUM(CAST(valor_total AS FLOAT64)) AS valor
+    FROM base_principalidade
+    GROUP BY month_year, IF_adj
+),
+
+calculo_market_share AS (
+    SELECT 
+        month_year,
+        IF_adj,
+        n,
+        valor,
+        SUM(n) OVER(PARTITION BY month_year) AS total_n_mes,
+        SAFE_DIVIDE(n, SUM(n) OVER(PARTITION BY month_year)) AS n_pct
+    FROM agg_mensal
+)
+
+SELECT * FROM calculo_market_share
+WHERE EXTRACT(MONTH FROM month_year) IN (3, 6, 9, 12)
+ORDER BY IF_adj, month_year
