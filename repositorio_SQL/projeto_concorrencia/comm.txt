@@ -1,0 +1,80 @@
+CREATE OR REPLACE TABLE `dataplatform-nonprd.credit_negocios.concorrencia_comm` AS 
+
+WITH
+
+comm AS (
+  SELECT 
+    SUBSTR(document,1,8) AS RootDocumentNumber,
+    DATE_TRUNC(partition_date, MONTH) AS month_year,
+
+    -- enviados
+    IF(sent = TRUE OR viewed = TRUE OR product_mentioned = TRUE OR secundary_button_clicked = TRUE OR sent_treated = TRUE, TRUE, FALSE) AS sent,
+    
+    -- entregues
+  CASE
+    WHEN channel IN ('email')              AND delivered = TRUE THEN TRUE  
+    WHEN channel IN ('sms')                AND delivered = TRUE THEN TRUE 
+    WHEN channel IN ('whatsapp')           AND delivered = TRUE THEN TRUE
+    WHEN channel IN ('push')               THEN NULL
+    WHEN channel IN ('gaveta de ofertas')  THEN NULL
+    WHEN channel IN ('visita')             AND executed = TRUE THEN TRUE
+    WHEN channel IN ('agente virtual')     AND executed = TRUE THEN TRUE
+    WHEN channel IN ('rentabilização')     THEN TRUE
+    WHEN channel IN ('front rc')           AND product_mentioned = TRUE THEN TRUE
+    WHEN channel IN ('pos')                AND delivered = TRUE THEN TRUE
+    WHEN channel IN ('alert - home')       AND viewed = TRUE THEN TRUE
+    WHEN channel IN ('bottom sheet home', 'bottom sheet - home', 'bottom sheet') AND marca = 'stone' AND viewed = TRUE THEN TRUE
+    WHEN channel IN ('bottom sheet home', 'bottom sheet - home', 'bottom sheet') AND marca = 'ton' AND delivered = TRUE THEN TRUE
+    WHEN channel IN ('fullpage overlay', 'fullpage overlay - home','full page') AND viewed = TRUE THEN TRUE
+    WHEN channel IN ('trava tela') AND (delivered = TRUE) THEN TRUE  
+    WHEN channel IN ('full screen modal') AND delivered = TRUE THEN TRUE
+    WHEN channel IN ('modal', 'modal home') AND viewed = TRUE THEN TRUE
+    WHEN channel IN ('inapp') AND delivered = TRUE THEN TRUE
+    WHEN channel IN ('banner', 'banner top home', 'banner top - home', 'banner top', 'banner bottom - home', 'banner bottom', 'credit - home banner', 'credit - banner') AND (viewed = TRUE OR sent = TRUE) THEN TRUE
+    ELSE FALSE
+  END AS entregues,
+
+    -- interacoes
+  CASE
+    WHEN channel IN ('email')              AND opened = TRUE THEN TRUE  
+    WHEN channel IN ('whatsapp')           AND opened = TRUE THEN TRUE
+    WHEN channel IN ('push')               AND opened = TRUE THEN TRUE
+    WHEN channel IN ('gaveta de ofertas')  AND clicked = TRUE THEN TRUE    
+    WHEN channel IN ('visita')             AND executed = TRUE AND td_reached = TRUE THEN TRUE
+    WHEN channel IN ('agente virtual')     AND executed = TRUE AND td_reached = TRUE THEN TRUE
+    WHEN channel IN ('pos')                AND opened = TRUE THEN TRUE
+    WHEN channel IN ('alert - home')       AND clicked = TRUE THEN TRUE
+    WHEN channel IN ('bottom sheet home', 'bottom sheet - home') AND primary_button_clicked = TRUE THEN TRUE
+    when channel in ('bottom sheet', 'full page', 'trava tela') and clicked_treated = true then true
+    WHEN channel IN ('fullpage overlay', 'fullpage overlay - home') AND clicked = TRUE THEN TRUE
+    WHEN channel IN ('full screen modal') AND clicked = TRUE THEN TRUE
+    WHEN channel IN ('modal', 'modal home') AND clicked = TRUE THEN TRUE
+    WHEN channel IN ('inapp') AND clicked = TRUE THEN TRUE
+    WHEN channel IN ('banner', 'banner top home', 'banner top - home', 'banner top', 'banner bottom - home', 'banner bottom', 'credit - home banner', 'credit - banner') AND clicked = TRUE THEN TRUE
+    ELSE FALSE
+  END AS interacoes,
+
+  FROM `dataplatform-prd.smb_crm_analytics.cross_customer_communication_funnel`
+
+  where product_1 = 'capital de giro'
+  and partition_date >= '2025-01-01'
+),
+
+comm_agg AS (
+  SELECT 
+  RootDocumentNumber,
+  month_year,
+  SUM(IF(sent IS TRUE, 1, 0)) AS n_sent,
+  SUM(IF(entregues IS TRUE, 1, 0)) AS n_entregues,
+  SUM(IF(interacoes IS TRUE, 1, 0)) AS n_interacoes   
+  FROM comm
+  GROUP BY RootDocumentNumber, month_year
+)
+
+SELECT 
+RootDocumentNumber,
+month_year,
+CASE WHEN n_sent >= 1 THEN 1 ELSE 0 END AS flag_sent,
+CASE WHEN n_entregues >= 1 THEN 1 ELSE 0 END AS flag_entregue,
+CASE WHEN n_interacoes >= 1 THEN 1 ELSE 0 END AS flag_interacao
+FROM comm_agg

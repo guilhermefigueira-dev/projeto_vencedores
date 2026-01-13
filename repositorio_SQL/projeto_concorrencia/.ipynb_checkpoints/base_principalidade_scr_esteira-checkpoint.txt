@@ -1,0 +1,89 @@
+WITH 
+
+base_principalidade AS (
+  SELECT SUBSTR(document,1,8) AS RootDocumentNumber,*
+  FROM `dataplatform-nonprd.credit_negocios.concorrencia_base_if`
+  WHERE 1=1 
+  AND soma_trimestral > 0
+  AND month_year >= "2025-01-01"
+),
+
+base_principalidade_bot AS (
+  SELECT a.document, a.RootDocumentNumber, a.IF_adj, a.month_year, t.CreditAmount AS desembolso_stone, t.offerType
+  from base_principalidade a
+  inner join `dataplatform-prd.credit_business_intelligence.tbl_business_offer_tracker` t
+  on a.document = t.CustomerDocument
+  and EXTRACT(YEAR FROM t.DataSubidaOferta) = 2025
+  where t.Status = 'Accepted' and t.LoanDisbursementDate is not null
+  AND DATE_TRUNC(a.month_year, MONTH) = DATE_TRUNC(t.DataSubidaOferta, MONTH)
+),
+
+base_principalidade_bot_aggIF AS (
+  SELECT IF_adj, offerType, count(*) as n_operacoes_stone, SUM(desembolso_stone) AS desembolso_stone
+  FROM base_principalidade_bot
+  GROUP BY IF_adj, offerType
+),
+
+base_principalidade_scr AS (
+  SELECT b.*,
+  a.desembolso_scr,
+  CASE WHEN desembolso_scr > 0 AND desembolso_scr <= 500000 THEN "Automatica"
+       WHEN desembolso_scr > 500000 AND desembolso_scr <= 50000000 THEN "Especializada" END AS esteira
+  FROM (
+    SELECT DISTINCT 
+      RootDocumentNumber AS rdn,
+      ReferenceDate,
+      Credito AS desembolso_scr
+    FROM `dataplatform-prd.credit_negocios.dsh_tbl_SCR_Variation_KGiro_Treated`
+    WHERE ReferenceDate >= "2025-01-01"
+  ) AS a
+  INNER JOIN base_principalidade AS b
+  ON a.rdn = b.RootDocumentNumber
+  AND a.ReferenceDate = b.month_year
+),
+
+base_principalidade_scr_aggIF AS (
+  SELECT IF_adj, esteira, count(*) as n_operacoes_scr,SUM(desembolso_scr) AS desembolso_scr
+  FROM base_principalidade_scr
+  WHERE esteira IS NOT NULL
+  GROUP BY IF_adj, esteira
+),
+
+base_aggIF AS (
+  SELECT b.*,a.n_operacoes_stone,a.desembolso_stone
+  FROM base_principalidade_bot_aggIF as a
+  INNER JOIN base_principalidade_scr_aggIF as b
+  ON a.IF_adj = b.IF_adj
+  AND a.offerType = b.esteira
+),
+
+nome_bancos AS(
+  SELECT DISTINCT IF_adj 
+  FROM base_principalidade   
+),
+
+nome_esteira AS(
+  SELECT DISTINCT esteira 
+  FROM base_principalidade_scr_aggIF   
+),
+
+cross_esteira_bancos AS(
+  SELECT *
+  FROM nome_bancos AS a
+  CROSS JOIN nome_esteira as b
+  WHERE esteira IS NOT NULL
+)
+
+SELECT 
+a.*,
+b.n_operacoes_stone,
+b.desembolso_stone,
+b.n_operacoes_scr,
+b.desembolso_scr
+FROM cross_esteira_bancos AS a
+LEFT JOIN base_aggIF AS b
+ON a.IF_adj = b.IF_adj 
+AND a.esteira = b.esteira
+
+
+
