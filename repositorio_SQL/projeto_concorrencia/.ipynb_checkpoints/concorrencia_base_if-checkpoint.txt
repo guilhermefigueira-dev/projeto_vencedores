@@ -154,19 +154,22 @@ base_ranqueada_main as(
   and month_year is not null
 ),
 
-base_cadastrados AS (
+base_cadastrados_mes AS (
   SELECT
   document,
+  reference_month,
   ton_acquirer_active_30d,
   stone_acquirer_active_30d
   FROM
     `dataplatform-prd.produto_segmento.monthly_produto_segmento`
   WHERE 1=1
-    AND reference_month = "2025-12-01"
-    AND LENGTH(document) = 14
+  AND LENGTH(document) = 14
 )
 
 SELECT a.*,b.ton_acquirer_active_30d,b.stone_acquirer_active_30d
 FROM base_ranqueada_main AS a
-INNER JOIN base_cadastrados AS b
+INNER JOIN base_cadastrados_mes AS b
 ON a.document = b.document
+and a.month_year = b.reference_month
+
+
