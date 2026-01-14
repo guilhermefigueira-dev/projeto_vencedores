@@ -154,6 +154,13 @@ base_ranqueada_main as(
   and month_year is not null
 ),
 
+base_ranqueada_main_matriz as(
+  select *
+  from base_ranqueada_main
+  where 1=1
+  and substr(document,9,4) = '0001'
+),
+
 base_cadastrados_mes AS (
   SELECT
   document,
@@ -167,9 +174,11 @@ base_cadastrados_mes AS (
 )
 
 SELECT a.*,b.ton_acquirer_active_30d,b.stone_acquirer_active_30d
-FROM base_ranqueada_main AS a
+FROM base_ranqueada_main_matriz AS a
 INNER JOIN base_cadastrados_mes AS b
 ON a.document = b.document
 and a.month_year = b.reference_month
+
+
 
 

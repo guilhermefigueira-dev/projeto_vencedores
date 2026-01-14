@@ -13,9 +13,9 @@ base_principalidade_bot AS (
   from base_principalidade a
   inner join `dataplatform-prd.credit_business_intelligence.tbl_business_offer_tracker` t
   on a.document = t.CustomerDocument
-  and EXTRACT(YEAR FROM t.DataSubidaOferta) = 2025
+  and EXTRACT(YEAR FROM t.DataAceitacaoOferta) = 2025
   where t.Status = 'Accepted' and t.LoanDisbursementDate is not null
-  AND DATE_TRUNC(a.month_year, MONTH) = DATE_TRUNC(t.DataSubidaOferta, MONTH)
+  AND DATE_TRUNC(a.month_year, MONTH) = DATE_TRUNC(t.DataAceitacaoOferta, MONTH)
 ),
 
 base_principalidade_bot_aggIF AS (
@@ -30,7 +30,7 @@ base_principalidade_scr AS (
   CASE WHEN desembolso_scr > 0 AND desembolso_scr <= 500000 THEN "Automatica"
        WHEN desembolso_scr > 500000 AND desembolso_scr <= 50000000 THEN "Especializada" END AS esteira
   FROM (
-    SELECT DISTINCT 
+    SELECT  
       RootDocumentNumber AS rdn,
       ReferenceDate,
       Credito AS desembolso_scr
@@ -84,6 +84,4 @@ FROM cross_esteira_bancos AS a
 LEFT JOIN base_aggIF AS b
 ON a.IF_adj = b.IF_adj 
 AND a.esteira = b.esteira
-
-
-
+order by a.IF_adj,a.esteira

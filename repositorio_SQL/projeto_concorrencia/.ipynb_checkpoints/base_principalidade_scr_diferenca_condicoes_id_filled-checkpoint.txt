@@ -1,0 +1,140 @@
+WITH 
+
+base_if AS (
+  SELECT *,
+  SUBSTR(document,1,8) AS RootDocumentNumber
+  FROM `dataplatform-nonprd.credit_negocios.concorrencia_base_if`
+  WHERE 1=1 
+  AND soma_trimestral > 0
+  AND month_year >= "2025-01-01"
+),
+
+base_if_bot as (
+  select 
+  a.document, 
+  a.RootDocumentNumber, 
+  a.month_year,
+  a.IF_adj, 
+  t.maximumTerm AS prazo_stone, 
+  t.InterestRate as taxa_stone, 
+  t.CreditLimit as limite_stone, 
+  t.Status, 
+  t.DataSubidaOferta,  
+  t.CustomerDocumentType,
+  t.PerfilSocietario,
+  t.GrupoCNAE,
+  t.IsAcquirerActive,
+  t.IsBankingActive,
+  t.IsRAVAuto,
+  t.CustomerUF,
+  t.MaturidadeAcumuladaCliente,
+  t.Rating,
+  t.TierLimite,
+  CASE WHEN t.LoanDisbursementDate IS NOT NULL THEN 1 ELSE 0 END AS flag_desembolsou_stone
+  from base_if a
+  inner join `dataplatform-prd.credit_business_intelligence.tbl_business_offer_tracker` t
+  on a.document = t.CustomerDocument
+  AND DATE_TRUNC(a.month_year, MONTH) = DATE_TRUNC(t.DataSubidaOferta, MONTH)
+  WHERE 1=1
+  AND EXTRACT(YEAR FROM t.DataSubidaOferta) = 2025
+),
+
+base_if_bot_ultmes AS (
+  select * EXCEPT(Status,DataSubidaOferta,rn)
+  from (select *,ROW_NUMBER() OVER(PARTITION BY document,month_year ORDER BY DataSubidaOferta DESC) AS rn
+        from base_if_bot)
+  where rn = 1
+),
+
+--clientes que fizeram algum desembolso até 2024
+
+filtro_clientes as (
+  select t.CustomerDocument, SUBSTR(t.CustomerDocument,1,8) as RootDocumentNumber_
+  from `dataplatform-prd.credit_business_intelligence.tbl_business_offer_tracker` t
+  WHERE 1=1
+  AND t.CustomerDocumentType = "CNPJ"
+  AND t.LoanDisbursementDate IS NOT NULL
+  AND EXTRACT(YEAR FROM t.LoanDisbursementDate) < 2025
+),
+
+base_if_bot_ultmes_filtro_clientes AS(
+  SELECT a.* 
+  FROM base_if_bot_ultmes AS a
+  LEFT JOIN filtro_clientes as b
+  ON a.RootDocumentNumber = b.RootDocumentNumber_
+  WHERE RootDocumentNumber_ IS NULL
+),
+
+base_if_bot_scr AS (
+  SELECT b.*, a.desembolso_scr, a.prazo_scr, a.taxa_scr
+  FROM (
+    SELECT DISTINCT 
+      RootDocumentNumber AS rdn,
+      ReferenceDate AS dat,
+      Prazo_Operacao as prazo_scr,
+      TaxaImplicita as taxa_scr,
+      Credito as desembolso_scr
+    FROM `dataplatform-prd.credit_negocios.dsh_tbl_SCR_Variation_KGiro_Treated`
+    WHERE ReferenceDate >= "2025-01-01"
+  ) AS a
+  INNER JOIN base_if_bot_ultmes_filtro_clientes AS b
+  ON a.rdn = b.RootDocumentNumber
+  AND a.dat = b.month_year
+),
+
+base_if_bot_scr_manipulada AS (
+  SELECT 
+  IF_adj,
+  RootDocumentNumber, 
+  month_year, 
+  flag_desembolsou_stone,
+  desembolso_scr,
+  limite_stone,
+  prazo_scr,
+  prazo_stone,
+  taxa_scr,
+  taxa_stone,
+  limite_stone - desembolso_scr as diferenca_limite,
+  prazo_stone - prazo_scr AS diferenca_prazo,
+  taxa_stone - taxa_scr AS diferenca_taxa,
+  CustomerDocumentType,
+  PerfilSocietario,
+  GrupoCNAE,
+  IsAcquirerActive,
+  IsBankingActive,
+  IsRAVAuto,
+  CustomerUF,
+  MaturidadeAcumuladaCliente,
+  Rating,
+  TierLimite
+  FROM base_if_bot_scr
+),
+
+comm AS(
+  SELECT 
+  RootDocumentNumber,
+  month_year,
+  flag_interacao 
+  FROM `dataplatform-nonprd.credit_negocios.concorrencia_comm`
+),
+
+base_if_bot_scr_manipulada_comm AS(
+  SELECT a.*,b.flag_interacao,
+    CASE WHEN a.desembolso_scr IS NOT NULL AND a.desembolso_scr <= 500000 THEN "automatica"
+         WHEN a.desembolso_scr IS NOT NULL AND a.desembolso_scr > 500000 AND a.desembolso_scr <= 50000000 THEN "especializada"
+         END as flag_operacao 
+  FROM base_if_bot_scr_manipulada AS a
+  LEFT JOIN comm AS b
+  ON a.RootDocumentNumber = b.RootDocumentNumber
+  and a.month_year = b.month_year
+)
+
+SELECT 
+*
+FROM base_if_bot_scr_manipulada_comm
+WHERE 1=1
+AND IsAcquirerActive = true
+AND flag_desembolsou_stone = 0
+AND flag_interacao = 1
+AND flag_operacao = "automatica"
+ORDER BY IF_adj
