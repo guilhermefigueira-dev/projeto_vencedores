@@ -1,3 +1,6 @@
+-- Código para puxar a base com as características dos documentos para preencher as possíveis condições observando as condições daqueles que conseguimos inferí-las (processo que é executado no python código cod_fill.ipýnb)
+
+
 WITH 
 
 base_if AS (
@@ -138,3 +141,10 @@ AND flag_desembolsou_stone = 0
 AND flag_interacao = 1
 AND flag_operacao = "automatica"
 ORDER BY IF_adj
+
+--------------------------------------------------------------------
+
+-- Para importar a base com as condições filled (incluindo também as originais)
+
+select * from `dataplatform-nonprd.credit_negocios.tbl_base_principalidade_scr_diferenca_condicoes_id_filled` 
+
