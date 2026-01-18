@@ -145,10 +145,22 @@ base_ranqueada AS (
   FROM base_preenchida_trimestral
 ),
 
+base_ranqueada_aux AS(
+  select *
+  from (select 
+  document,
+  max(rank_banco_principal) as n_if
+  from base_ranqueada
+  group by document) as a
+  inner join base_ranqueada
+  using (document)
+),
+
 base_ranqueada_main as(
   SELECT 
-    * EXCEPT(rank_banco_principal)
-  FROM base_ranqueada
+    * 
+    EXCEPT(rank_banco_principal)
+  FROM base_ranqueada_aux
   WHERE rank_banco_principal = 1
   and document is not null
   and month_year is not null
@@ -178,7 +190,3 @@ FROM base_ranqueada_main_matriz AS a
 INNER JOIN base_cadastrados_mes AS b
 ON a.document = b.document
 and a.month_year = b.reference_month
-
-
-
-

@@ -1,5 +1,6 @@
--- Código para puxar a base com as características dos documentos para preencher as possíveis condições observando as condições daqueles que conseguimos inferí-las (processo que é executado no python código cod_fill.ipýnb)
+-- Código para puxar a base com as características dos documentos para preencher as possíveis condições observando as condições daqueles que conseguimos inferí-las (processo que é executado no python código cod_fill.ipynb)
 
+CREATE OR REPLACE TABLE `dataplatform-nonprd.credit_negocios.tbl_concorrencia_base_tomada_scr` AS 
 
 WITH 
 
@@ -12,75 +13,86 @@ base_if AS (
   AND month_year >= "2025-01-01"
 ),
 
+base_rf AS(
+  select distinct
+  substr(cpf_cnpj,1,8) as RootDocumentNumber,
+  extract(year from data_de_inicio_atividade) as ano_inicio_atividade,
+  cnae_fiscal_principal,
+  uf
+  from `dataplatform-prd.dados_abertos_receita.vw_estabelecimentos`
+  where 1=1
+  and is_matriz = true
+),
+
+base_n_socios as(
+  select
+      substr(document_number,1,8) as RootDocumentNumber,
+      COUNT(DISTINCT Cpf_Cnpj_Socio_N1) AS Cont_Socios
+    FROM
+      `dataplatform-prd.credit_data_capture.entity_partners`
+    WHERE 1=1
+    GROUP BY
+      1
+),
+
+base_if_rf AS (
+  select *
+  from base_if as a
+  inner join base_rf as b
+  using (RootDocumentNumber)
+  inner join base_n_socios as c
+  using (RootDocumentNumber)
+),
+
+-- selecionando a ultima oferta de 2025 (para aqueles que possuem oferta, claro)
+base_bot_ultmes AS (
+  select * EXCEPT(Status,rn)
+  from (select *,ROW_NUMBER() OVER(PARTITION BY CustomerDocument,DATE_TRUNC(DataSubidaOferta, MONTH) ORDER BY DataSubidaOferta DESC) AS rn
+        from `dataplatform-prd.credit_business_intelligence.tbl_business_offer_tracker`)
+  where rn = 1
+  AND EXTRACT(YEAR FROM DataSubidaOferta) = 2025
+),
+
 base_if_bot as (
   select 
   a.document, 
   a.RootDocumentNumber, 
   a.month_year,
   a.IF_adj, 
+  a.n_if,
+  a.ano_inicio_atividade,
+  a.cnae_fiscal_principal,
+  a.uf,
+  a.Cont_Socios,
   t.maximumTerm AS prazo_stone, 
   t.InterestRate as taxa_stone, 
   t.CreditLimit as limite_stone, 
-  t.Status, 
   t.DataSubidaOferta,  
-  t.CustomerDocumentType,
-  t.PerfilSocietario,
-  t.GrupoCNAE,
   t.IsAcquirerActive,
-  t.IsBankingActive,
-  t.IsRAVAuto,
-  t.CustomerUF,
-  t.MaturidadeAcumuladaCliente,
-  t.Rating,
-  t.TierLimite,
   CASE WHEN t.LoanDisbursementDate IS NOT NULL THEN 1 ELSE 0 END AS flag_desembolsou_stone
-  from base_if a
-  inner join `dataplatform-prd.credit_business_intelligence.tbl_business_offer_tracker` t
+  from base_if_rf a
+  LEFT join base_bot_ultmes t
   on a.document = t.CustomerDocument
   AND DATE_TRUNC(a.month_year, MONTH) = DATE_TRUNC(t.DataSubidaOferta, MONTH)
   WHERE 1=1
-  AND EXTRACT(YEAR FROM t.DataSubidaOferta) = 2025
-),
-
-base_if_bot_ultmes AS (
-  select * EXCEPT(Status,DataSubidaOferta,rn)
-  from (select *,ROW_NUMBER() OVER(PARTITION BY document,month_year ORDER BY DataSubidaOferta DESC) AS rn
-        from base_if_bot)
-  where rn = 1
-),
-
---clientes que fizeram algum desembolso até 2024
-
-filtro_clientes as (
-  select t.CustomerDocument, SUBSTR(t.CustomerDocument,1,8) as RootDocumentNumber_
-  from `dataplatform-prd.credit_business_intelligence.tbl_business_offer_tracker` t
-  WHERE 1=1
-  AND t.CustomerDocumentType = "CNPJ"
-  AND t.LoanDisbursementDate IS NOT NULL
-  AND EXTRACT(YEAR FROM t.LoanDisbursementDate) < 2025
-),
-
-base_if_bot_ultmes_filtro_clientes AS(
-  SELECT a.* 
-  FROM base_if_bot_ultmes AS a
-  LEFT JOIN filtro_clientes as b
-  ON a.RootDocumentNumber = b.RootDocumentNumber_
-  WHERE RootDocumentNumber_ IS NULL
 ),
 
 base_if_bot_scr AS (
-  SELECT b.*, a.desembolso_scr, a.prazo_scr, a.taxa_scr
+  SELECT b.*, a.desembolso_scr, a.prazo_scr, a.taxa_scr, a.FullDebt_Act, a.Default_Month_Prior, a.FullDebt_3M
   FROM (
     SELECT DISTINCT 
       RootDocumentNumber AS rdn,
       ReferenceDate AS dat,
       Prazo_Operacao as prazo_scr,
       TaxaImplicita as taxa_scr,
-      Credito as desembolso_scr
+      Credito as desembolso_scr,
+      FullDebt_Act,
+      FullDebt_3M,
+      Default_Month_Prior
     FROM `dataplatform-prd.credit_negocios.dsh_tbl_SCR_Variation_KGiro_Treated`
     WHERE ReferenceDate >= "2025-01-01"
   ) AS a
-  INNER JOIN base_if_bot_ultmes_filtro_clientes AS b
+  INNER JOIN base_if_bot AS b
   ON a.rdn = b.RootDocumentNumber
   AND a.dat = b.month_year
 ),
@@ -100,17 +112,28 @@ base_if_bot_scr_manipulada AS (
   limite_stone - desembolso_scr as diferenca_limite,
   prazo_stone - prazo_scr AS diferenca_prazo,
   taxa_stone - taxa_scr AS diferenca_taxa,
-  CustomerDocumentType,
-  PerfilSocietario,
-  GrupoCNAE,
+  n_if,
+  ano_inicio_atividade,
+  cnae_fiscal_principal,
+  uf,
+  Cont_Socios,
   IsAcquirerActive,
-  IsBankingActive,
-  IsRAVAuto,
-  CustomerUF,
-  MaturidadeAcumuladaCliente,
-  Rating,
-  TierLimite
+  FullDebt_Act,
+  Default_Month_Prior,
+  FullDebt_3M
   FROM base_if_bot_scr
+),
+
+base_if_bot_scr_manipulada_ as (
+  SELECT 
+  *,
+  -- Calcula o desvio padrão amostral dos 3 meses anteriores
+  STDDEV_SAMP(FullDebt_Act) OVER (
+    PARTITION BY RootDocumentNumber 
+    ORDER BY UNIX_DATE(DATE(month_year)) -- Garante a ordenação temporal
+    ROWS BETWEEN 3 PRECEDING AND 1 PRECEDING
+  ) AS std_dev_debt_3m
+  FROM base_if_bot_scr_manipulada
 ),
 
 comm AS(
@@ -126,19 +149,60 @@ base_if_bot_scr_manipulada_comm AS(
     CASE WHEN a.desembolso_scr IS NOT NULL AND a.desembolso_scr <= 500000 THEN "automatica"
          WHEN a.desembolso_scr IS NOT NULL AND a.desembolso_scr > 500000 AND a.desembolso_scr <= 50000000 THEN "especializada"
          END as flag_operacao 
-  FROM base_if_bot_scr_manipulada AS a
+  FROM base_if_bot_scr_manipulada_ AS a
   LEFT JOIN comm AS b
   ON a.RootDocumentNumber = b.RootDocumentNumber
   and a.month_year = b.month_year
+),
+
+base_tpv as (
+  SELECT DISTINCT
+  document,
+  reference_month,
+  tpv_total 
+  FROM `dataplatform-prd.economic_research.sbca_monthly_metrics`
+),
+
+base_tpv_com_janela AS (
+  SELECT 
+    *,
+    -- Cria um array com os tpv_total dos 3 meses anteriores (excluindo o atual)
+    ARRAY_AGG(tpv_total) OVER (
+      PARTITION BY document 
+      ORDER BY reference_month 
+      ROWS BETWEEN 3 PRECEDING AND 1 PRECEDING
+    ) AS ultimos_3_tpv
+  FROM base_tpv
+),
+
+base_tpv_com_janela_median as (
+  SELECT 
+    document,
+    reference_month,
+    tpv_total,
+    -- Calcula a mediana a partir do array gerado
+    (SELECT DISTINCT PERCENTILE_CONT(valor, 0.5) OVER() 
+    FROM UNNEST(ultimos_3_tpv) AS valor) AS mediana_tpv_3m,
+    -- Média
+    (SELECT AVG(valor) 
+     FROM UNNEST(ultimos_3_tpv) AS valor) AS media_tpv_3m
+  FROM base_tpv_com_janela
+),
+
+base_if_bot_scr_manipulada_comm_tpv as(
+  select 
+  *
+  from base_if_bot_scr_manipulada_comm as a
+  left join base_tpv_com_janela_median 
+  as b on a.RootDocumentNumber = substr(b.document,1,8)
+  and a.month_year = b.reference_month
 )
 
 SELECT 
-*
-FROM base_if_bot_scr_manipulada_comm
+*,
+case when Cont_Socios > 1 then 1 else 0 end as flag_multisocios
+FROM base_if_bot_scr_manipulada_comm_tpv
 WHERE 1=1
-AND IsAcquirerActive = true
-AND flag_desembolsou_stone = 0
-AND flag_interacao = 1
 AND flag_operacao = "automatica"
 ORDER BY IF_adj
 
