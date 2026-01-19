@@ -10,7 +10,7 @@ base_if AS (
   FROM `dataplatform-nonprd.credit_negocios.concorrencia_base_if`
   WHERE 1=1 
   AND soma_trimestral > 0
-  AND month_year >= "2025-01-01"
+  AND month_year >= "2024-01-01"
 ),
 
 base_rf AS(
@@ -90,7 +90,7 @@ base_if_bot_scr AS (
       FullDebt_3M,
       Default_Month_Prior
     FROM `dataplatform-prd.credit_negocios.dsh_tbl_SCR_Variation_KGiro_Treated`
-    WHERE ReferenceDate >= "2025-01-01"
+    WHERE ReferenceDate >= "2024-01-01"
   ) AS a
   INNER JOIN base_if_bot AS b
   ON a.rdn = b.RootDocumentNumber

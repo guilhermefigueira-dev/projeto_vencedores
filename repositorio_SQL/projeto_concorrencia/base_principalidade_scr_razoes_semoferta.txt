@@ -1,0 +1,81 @@
+with
+
+base_if AS (
+  SELECT *,
+  SUBSTR(document,1,8) AS RootDocumentNumber
+  FROM `dataplatform-nonprd.credit_negocios.concorrencia_base_if`
+  WHERE 1=1 
+  AND soma_trimestral > 0
+  AND month_year >= "2025-01-01"
+  AND (stone_acquirer_active_30d = true OR ton_acquirer_active_30d = true)
+),
+
+base_if_scr AS (
+  SELECT b.*, a.desembolso_scr, a.prazo_scr, a.taxa_scr
+  FROM (
+    SELECT DISTINCT 
+      RootDocumentNumber AS rdn,
+      ReferenceDate AS dat,
+      Prazo_Operacao as prazo_scr,
+      TaxaImplicita as taxa_scr,
+      Credito as desembolso_scr
+    FROM `dataplatform-prd.credit_negocios.dsh_tbl_SCR_Variation_KGiro_Treated`
+    WHERE ReferenceDate >= "2025-01-01"
+  ) AS a
+  INNER JOIN base_if AS b
+  ON a.rdn = b.RootDocumentNumber
+  AND a.dat = b.month_year
+),
+
+base_modelo AS(
+select 
+created_at,
+data_application_score_rating,
+document,
+elegible,
+rating_value,
+reasons_not_elegible_translation 
+from `dataplatform-prd.credit_negocios.New_Credit_Policy_Output`
+qualify row_number() over(partition by document, date_trunc(created_at, month) order by created_at desc) = 1
+),
+
+base_modelo_matriz as(
+  select 
+  *,
+  substr(document,1,8) as RootDocumentNumber
+  from base_modelo
+  where 1=1
+  and substr(document,9,4) = '0001'
+),
+
+base_if_scr_modelo as(
+  select 
+  *
+  from base_if_scr as a
+  inner join base_modelo_matriz as b
+  on a.RootDocumentNumber = b.RootDocumentNumber
+  and date(a.month_year) = date(date_trunc(b.created_at, month))
+),
+
+base_if_scr_modelo_filter as(
+  select
+  *
+  from base_if_scr_modelo
+  where 1=1
+  and desembolso_scr <= 50000000
+)
+
+SELECT 
+    IF_adj, 
+    reasons_not_elegible_translation, 
+    elegible,
+    COUNT(*) AS contagem,
+    SUM(desembolso_scr) as soma_desembolso_scr
+FROM 
+    base_if_scr_modelo_filter
+GROUP BY 
+    1, 2, 3
+ORDER BY 
+    IF_adj ASC, 
+    contagem DESC,
+    elegible DESC

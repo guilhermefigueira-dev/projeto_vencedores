@@ -2,7 +2,8 @@ WITH
 
 base_if AS (
   SELECT *,
-  SUBSTR(document,1,8) AS RootDocumentNumber
+  SUBSTR(document,1,8) AS RootDocumentNumber,
+  case when stone_acquirer_active_30d = true or ton_acquirer_active_30d = true then 1 else 0 end as flag_ativo 
   FROM `dataplatform-nonprd.credit_negocios.concorrencia_base_if`
   WHERE 1=1 
   AND soma_trimestral > 0
@@ -10,7 +11,7 @@ base_if AS (
 ),
 
 base_if_bot as (
-  select a.document, a.RootDocumentNumber, a.month_year,a.IF_adj, t.maximumTerm AS prazo_stone, t.InterestRate as taxa_stone, t.CreditLimit as limite_stone, t.Status, t.DataSubidaOferta, CASE WHEN t.LoanDisbursementDate IS NOT NULL THEN 1 ELSE 0 END AS flag_desembolsou_stone
+  select a.document, a.RootDocumentNumber, a.month_year,a.IF_adj, a.flag_ativo, t.maximumTerm AS prazo_stone, t.InterestRate as taxa_stone, t.CreditLimit as limite_stone, t.Status, t.DataSubidaOferta, CASE WHEN t.LoanDisbursementDate IS NOT NULL THEN 1 ELSE 0 END AS flag_desembolsou_stone
   from base_if a
   inner join `dataplatform-prd.credit_business_intelligence.tbl_business_offer_tracker` t
   on a.document = t.CustomerDocument
@@ -63,7 +64,7 @@ base_if_bot_scr AS (
 
 base_if_bot_scr_manipulada AS(
   SELECT IF_adj,RootDocumentNumber, month_year, 
-  flag_desembolsou_stone,
+  flag_desembolsou_stone,flag_ativo,
   desembolso_scr,
   limite_stone - desembolso_scr as diferenca_limite,
   prazo_stone - prazo_scr AS diferenca_prazo,
@@ -90,33 +91,25 @@ base_if_bot_scr_manipulada_comm AS(
   and a.month_year = b.month_year
 )
 
--- Operações com IF e tipo de operação
-SELECT 
-IF_adj,
-diferenca_limite,
-diferenca_prazo,
-diferenca_taxa,
-FROM base_if_bot_scr_manipulada_comm
-WHERE 1=1
-AND flag_desembolsou_stone = 0
-AND flag_interacao = 1
-AND flag_operacao = "automatica"
-ORDER BY IF_adj
-
--- Agregado por IF e tipo de operação
 /*
+--Total Desembolsado por Clientes de IFs de Alta Penetração que tinham Oferta Ativa da Stone no mês de desembolso no SCR
 SELECT 
-IF_adj,
-flag_operacao,
-count(*) as n,
-avg(diferenca_limite) as media_diference_limite,
-avg(diferenca_prazo) as media_diference_prazo,
-avg(diferenca_taxa) as media_diference_taxa,
+sum(desembolso_scr)
 FROM base_if_bot_scr_manipulada_comm
 WHERE 1=1
-AND flag_desembolsou_stone = 0
-AND flag_ciente = 1
-group by IF_adj, flag_operacao
-order by IF_adj, flag_operacao
+AND flag_operacao = "automatica"
+and IF_adj in ('Pagseguro','Santander','C6 Bank','Nubank','Banco Inter','Mercado Pago')
+*/
+
+/*
+--Total Desembolsado por Clientes de IFs de Alta Penetração que tinham Oferta Ativa da Stone no mês de desembolso no SCR + Ativos no mês + Cientes da Oferta
+SELECT 
+sum(desembolso_scr)
+FROM base_if_bot_scr_manipulada_comm
+WHERE 1=1
+AND flag_operacao = "automatica"
+and IF_adj in ('Pagseguro','Santander','C6 Bank','Nubank','Banco Inter','Mercado Pago')
+and flag_interacao = 1
+and flag_ativo = 1
 */
 
