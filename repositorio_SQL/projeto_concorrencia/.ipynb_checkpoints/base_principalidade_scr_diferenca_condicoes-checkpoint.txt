@@ -99,17 +99,33 @@ FROM base_if_bot_scr_manipulada_comm
 WHERE 1=1
 AND flag_operacao = "automatica"
 and IF_adj in ('Pagseguro','Santander','C6 Bank','Nubank','Banco Inter','Mercado Pago')
-*/
 
-/*
 --Total Desembolsado por Clientes de IFs de Alta Penetração que tinham Oferta Ativa da Stone no mês de desembolso no SCR + Ativos no mês + Cientes da Oferta
 SELECT 
 sum(desembolso_scr)
 FROM base_if_bot_scr_manipulada_comm
 WHERE 1=1
 AND flag_operacao = "automatica"
-and IF_adj in ('Pagseguro','Santander','C6 Bank','Nubank','Banco Inter','Mercado Pago')
+and IF_adj in ('Banco do Brasil','Bradesco','Caixa','Cooperativas','Itaú','Outros')
 and flag_interacao = 1
 and flag_ativo = 1
+
+--Total Desembolsado por Clientes de IFs de Alta Penetração que tinham Oferta Ativa da Stone no mês de desembolso no SCR
+SELECT 
+sum(desembolso_scr)
+FROM base_if_bot_scr_manipulada_comm
+WHERE 1=1
+AND flag_operacao = "automatica"
+and IF_adj in ('Banco do Brasil','Bradesco','Caixa','Cooperativas','Itaú','Outros')
 */
+
+--Total Desembolsado por Clientes de IFs de Baixa Penetração que tinham Oferta Ativa da Stone no mês de desembolso no SCR + Ativos no mês + Cientes da Oferta
+SELECT 
+sum(desembolso_scr)
+FROM base_if_bot_scr_manipulada_comm
+WHERE 1=1
+AND flag_operacao = "automatica"
+and IF_adj in ('Banco do Brasil','Bradesco','Caixa','Cooperativas','Itaú','Outros')
+and flag_interacao = 1
+and flag_ativo = 1
 
