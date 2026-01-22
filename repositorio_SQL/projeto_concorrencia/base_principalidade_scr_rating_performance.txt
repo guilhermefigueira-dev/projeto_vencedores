@@ -1,0 +1,41 @@
+WITH 
+
+base_if AS (
+  SELECT *,
+  SUBSTR(document,1,8) AS RootDocumentNumber
+  FROM `dataplatform-nonprd.credit_negocios.concorrencia_base_if`
+  WHERE 1=1 
+  AND soma_trimestral > 0
+  AND month_year >= "2025-01-01"
+  AND IF_adj in ('Pagseguro','Santander','C6 Bank','Nubank','Banco Inter','Mercado Pago','Banco do Brasil','Bradesco','Caixa','Cooperativas','Itaú','Outros')
+),
+
+base_if_scr AS (
+  SELECT 
+  *,
+  CASE WHEN a.Credito IS NOT NULL AND a.Credito <= 500000 THEN "automatica"
+      WHEN a.Credito IS NOT NULL AND a.Credito > 500000 AND a.Credito <= 50000000 THEN "especializada"
+      END as flag_operacao 
+  FROM (
+    SELECT * 
+    FROM `dataplatform-prd.credit_negocios.dsh_tbl_SCR_Variation_KGiro_Treated`
+    WHERE ReferenceDate >= "2025-01-01"
+  ) AS a
+  INNER JOIN base_if AS b
+  ON a.RootDocumentNumber = b.RootDocumentNumber
+  AND a.ReferenceDate = b.month_year
+)
+
+select 
+IF_adj,
+flag_operacao,
+count(*) as n_operacoes,
+countif(Over30Mob3 = true) as O30M3,
+safe_divide(countif(Over30Mob3 = true),count(*)) as O30M3_fisico_pct,
+safe_divide(sum(Full_Problema_3M),sum(FullDebt_3M)) as O30M3_financeiro_pct,
+from base_if_scr
+where 1=1
+and Elegible_Over30Mob3 = true
+and ReferenceDate = '2025-08-01'
+group by IF_adj,flag_operacao
+order by IF_adj,flag_operacao
