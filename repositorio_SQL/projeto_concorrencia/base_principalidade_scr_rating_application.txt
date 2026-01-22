@@ -1,0 +1,68 @@
+with
+
+base_if AS (
+  SELECT *,
+  SUBSTR(document,1,8) AS RootDocumentNumber
+  FROM `dataplatform-nonprd.credit_negocios.concorrencia_base_if`
+  WHERE 1=1 
+  AND soma_trimestral > 0
+  AND month_year = "2025-08-01"
+  and IF_adj in ('Pagseguro','Santander','C6 Bank','Nubank','Banco Inter','Mercado Pago','Banco do Brasil','Bradesco','Caixa','Cooperativas','Itaú','Outros')
+),
+
+base_if_scr AS (
+  SELECT 
+  a.*,
+  b.IF_adj,
+  CASE WHEN a.Credito IS NOT NULL AND a.Credito <= 500000 THEN "automatica"
+    WHEN a.Credito IS NOT NULL AND a.Credito > 500000 AND a.Credito <= 50000000 THEN "especializada"
+    END as flag_operacao 
+  FROM (
+    SELECT 
+    * 
+    FROM `dataplatform-prd.credit_negocios.dsh_tbl_SCR_Variation_KGiro_Treated`
+    WHERE ReferenceDate = "2025-08-01"
+  ) AS a
+  right JOIN base_if AS b
+  ON a.RootDocumentNumber = b.RootDocumentNumber
+),
+
+base_rating as(
+  select 
+  RootDocumentNumber,
+  ReferenceDate,
+  CreditRating
+  from `dataplatform-prd.credit_data_tribe.application_output`
+  where 1=1
+  and DocumentType = "PJ"
+  and date_trunc(ReferenceDate,month) = '2025-07-01'
+),
+
+base_rating_last as(
+  select 
+  *,
+  -- Extrai o número antes dos dois pontos e converte para numérico
+  SAFE_CAST(REGEXP_EXTRACT(CreditRating, r'^([0-9.]+):') AS FLOAT64) AS CreditRating_num
+  from base_rating
+  qualify row_number() over(partition by RootDocumentNumber order by ReferenceDate desc) = 1
+),
+
+base_if_scr_rating as(
+  select *
+  from base_if_scr a
+  left join base_rating_last b
+  using(RootDocumentNumber)
+)
+
+select 
+IF_adj,
+flag_operacao,
+avg(CreditRating_num) as media_rating,
+count(*) as n
+from base_if_scr_rating
+where 1=1
+and CreditRating_num > 0
+and Credito is not null
+group by IF_adj,flag_operacao
+order by IF_adj,flag_operacao
+

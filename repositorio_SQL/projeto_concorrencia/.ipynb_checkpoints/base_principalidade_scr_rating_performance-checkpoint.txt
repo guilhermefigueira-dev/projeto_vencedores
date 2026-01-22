@@ -6,7 +6,7 @@ base_if AS (
   FROM `dataplatform-nonprd.credit_negocios.concorrencia_base_if`
   WHERE 1=1 
   AND soma_trimestral > 0
-  AND month_year >= "2025-01-01"
+  AND month_year = "2025-01-01"
   AND IF_adj in ('Pagseguro','Santander','C6 Bank','Nubank','Banco Inter','Mercado Pago','Banco do Brasil','Bradesco','Caixa','Cooperativas','Itaú','Outros')
 ),
 
@@ -19,7 +19,7 @@ base_if_scr AS (
   FROM (
     SELECT * 
     FROM `dataplatform-prd.credit_negocios.dsh_tbl_SCR_Variation_KGiro_Treated`
-    WHERE ReferenceDate >= "2025-01-01"
+    WHERE ReferenceDate = "2025-01-01"
   ) AS a
   INNER JOIN base_if AS b
   ON a.RootDocumentNumber = b.RootDocumentNumber
