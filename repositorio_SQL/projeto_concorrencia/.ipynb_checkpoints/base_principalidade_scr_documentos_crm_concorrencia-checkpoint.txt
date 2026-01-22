@@ -1,0 +1,90 @@
+--Grupo de Alta Pen
+
+CREATE OR REPLACE TABLE `dataplatform-nonprd.credit_negocios.tbl_documentos_altapen_dez25` as
+
+WITH 
+
+base_if_dez AS (
+  SELECT *,
+  SUBSTR(document,1,8) AS RootDocumentNumber,
+  case when stone_acquirer_active_30d = true or ton_acquirer_active_30d = true then 1 else 0 end as flag_ativo 
+  FROM `dataplatform-nonprd.credit_negocios.concorrencia_base_if`
+  WHERE 1=1 
+  AND soma_trimestral > 0
+  AND month_year = "2025-12-01"
+),
+
+base_if_dez_ap as (
+  select distinct 
+  RootDocumentNumber
+  from base_if_dez
+  where 1=1
+  and IF_adj in ('Pagseguro','Santander','C6 Bank','Nubank','Banco Inter','Mercado Pago')
+),
+
+base_bot_ultmes AS (
+  select * EXCEPT(rn)
+  from (select *,ROW_NUMBER() OVER(PARTITION BY CustomerDocument ORDER BY DataSubidaOferta DESC) AS rn
+        from `dataplatform-prd.credit_business_intelligence.tbl_business_offer_tracker`)
+  where rn = 1
+),
+
+base_bot_ultmes_pj_matriz AS (
+  select 
+  *,
+  substr(CustomerDocument,1,8) as RootDocumentNumber
+  from base_bot_ultmes 
+  where 1=1
+  and CustomerDocumentType = "CNPJ"
+  and substr(CustomerDocument,9,4) = '0001'
+),
+
+base_if_dez_ap_bot as(
+  select 
+  *
+  from base_if_dez_ap a
+  inner join base_bot_ultmes_pj_matriz b
+  using(RootDocumentNumber)
+)
+
+select 
+RootDocumentNumber
+from base_if_dez_ap_bot
+where 1=1
+and Status = "Available"
+and OfferType = "Automatica"
+and IsStoneActive = true
+and IsRAVAuto = true
+
+----------------------------------------------------------------
+
+--Grupo de Baixa Pen
+
+with
+
+base_if_bot as (
+  select 
+  *,
+  substr(CustomerDocument,1,8) as RootDocumentNumber  
+  from `dataplatform-prd.credit_business_intelligence.tbl_business_offer_tracker` 
+  where 1=1
+  and CustomerDocumentType = "CNPJ"
+  and substr(CustomerDocument,9,4) = '0001'
+  and Status = 'Available'
+  and offerType = 'Automatica'
+),
+
+base_docs_baixapen as (
+  select distinct RootDocumentNumber 
+  from `dataplatform-nonprd.credit_negocios.tbl_clientes_baixapen_condicoes`
+)
+
+select 
+*
+from base_if_bot a 
+inner join base_docs_baixapen b
+using(RootDocumentNumber)
+where 1=1
+and a.IsAcquirerActive = true
+and a.IsRAVAuto = true
+

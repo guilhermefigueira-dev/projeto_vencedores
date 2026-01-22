@@ -10,6 +10,37 @@ base_principalidade AS (
   AND month_year >= "2025-01-01"
 ),
 
+base_rating as (
+  select 
+  RootDocumentNumber, 
+  ReferenceDate, 
+  CreditRating 
+  from `dataplatform-prd.credit_data_tribe.application_output` 
+  where 1=1
+  and extract(year from ReferenceDate) = 2025
+),
+
+base_rating_last as(
+  select *
+  from base_rating
+  qualify row_number() over(
+    partition by RootDocumentNumber, extract(month from ReferenceDate)
+    order by ReferenceDate DESC
+  ) = 1
+),
+
+base_rating_last_if as (
+  select 
+    a.RootDocumentNumber,
+    a.month_year,
+    -- Extrai o número antes dos dois pontos e converte para numérico
+    SAFE_CAST(REGEXP_EXTRACT(b.CreditRating, r'^([0-9.]+):') AS FLOAT64) AS CreditRating_num
+  from base_principalidade a
+  inner join base_rating_last b
+    on a.RootDocumentNumber = b.RootDocumentNumber
+    and a.month_year = DATE_TRUNC(b.ReferenceDate, MONTH)
+),
+
 base_principalidade_scr AS (
   SELECT b.*,
   a.desembolso_scr,
@@ -32,18 +63,30 @@ base_principalidade_scr AS (
   AND a.ReferenceDate = b.month_year
 ),
 
+base_principalidade_scr_rating as(
+  select 
+  *
+  from base_principalidade_scr a
+  left join base_rating_last_if b
+  using(RootDocumentNumber,month_year)
+),
+
 base_principalidade_scr_aggIF AS (
-  SELECT 
-  IF_adj,
-  esteira,
-  COUNT(*) AS n_operacoes_scr,
-  SUM(desembolso_scr) AS desembolso_total_scr,
-  AVG(desembolso_scr) AS desembolso_medio_scr,
-  AVG(taxa_scr) AS taxa_media_scr,
-  AVG(prazo_scr) AS prazo_medio_scr,
-  FROM base_principalidade_scr
+  SELECT DISTINCT
+    IF_adj,
+    esteira,
+    COUNT(*) OVER(PARTITION BY IF_adj, esteira) AS n_operacoes_scr,
+    SUM(desembolso_scr) OVER(PARTITION BY IF_adj, esteira) AS desembolso_total_scr,
+    AVG(desembolso_scr) OVER(PARTITION BY IF_adj, esteira) AS desembolso_medio_scr,
+    AVG(CreditRating_num) OVER(PARTITION BY IF_adj, esteira) AS rating_medio,
+    -- Mediana exata
+    PERCENTILE_CONT(desembolso_scr, 0.5) OVER(PARTITION BY IF_adj, esteira) AS desembolso_mediana_scr,
+    AVG(taxa_scr) OVER(PARTITION BY IF_adj, esteira) AS taxa_media_scr,
+    PERCENTILE_CONT(taxa_scr, 0.5) OVER(PARTITION BY IF_adj, esteira) AS taxa_mediana_scr,
+    AVG(prazo_scr) OVER(PARTITION BY IF_adj, esteira) AS prazo_medio_scr,
+    PERCENTILE_CONT(prazo_scr, 0.5) OVER(PARTITION BY IF_adj, esteira) AS prazo_mediana_scr
+  FROM base_principalidade_scr_rating
   WHERE esteira IS NOT NULL
-  GROUP BY IF_adj, esteira
 ),
 
 nome_bancos AS(
@@ -66,10 +109,12 @@ cross_esteira_bancos AS(
 SELECT 
 a.*,
 b.n_operacoes_scr,
+b.rating_medio,
 b.desembolso_total_scr,
 b.desembolso_medio_scr,
 b.prazo_medio_scr,
-b.taxa_media_scr 
+b.taxa_media_scr,
+b.taxa_mediana_scr
 FROM cross_esteira_bancos AS a
 LEFT JOIN base_principalidade_scr_aggIF AS b
 ON a.IF_adj = b.IF_adj
@@ -99,11 +144,20 @@ base_desembolso_stone AS(
 )
 
 SELECT 
-COUNT(*) AS n_operacao,
-SUM(desembolsado_stone) AS total_desembolsado_stone,
-AVG(desembolsado_stone) AS media_desembolsado_stone,
-AVG(prazo_stone) AS media_prazo_stone,
-AVG(taxa_stone) AS media_taxa_stone,
+  offerType,
+  COUNT(*) AS n_operacao,
+  SUM(desembolsado_stone) AS total_desembolsado_stone,
+  
+  -- Médias
+  AVG(desembolsado_stone) AS media_desembolsado_stone,
+  AVG(prazo_stone) AS media_prazo_stone,
+  AVG(taxa_stone) AS media_taxa_stone,
+  
+  -- Medianas
+  APPROX_QUANTILES(desembolsado_stone, 2)[OFFSET(1)] AS mediana_desembolsado_stone,
+  APPROX_QUANTILES(prazo_stone, 2)[OFFSET(1)] AS mediana_prazo_stone,
+  APPROX_QUANTILES(taxa_stone, 2)[OFFSET(1)] AS mediana_taxa_stone
+
 FROM base_desembolso_stone
 GROUP BY offerType
 
