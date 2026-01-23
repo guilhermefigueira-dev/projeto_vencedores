@@ -1,0 +1,50 @@
+ WITH
+
+base_doc_stone AS( 
+  SELECT 
+  CustomerDocument
+  FROM
+    (SELECT *
+    FROM `dataplatform-prd.credit_business_intelligence.tbl_business_offer_tracker` 
+    WHERE 1=1
+    AND LoanDisbursementDate IS NOT NULL
+    QUALIFY ROW_NUMBER() OVER (PARTITION BY CustomerDocument ORDER BY LoanDisbursementDate ASC) = 1)
+  WHERE EXTRACT(YEAR FROM LoanDisbursementDate) = 2025
+  AND CustomerDocumentType = "CNPJ"
+  AND offerType = 'Especializada'
+),
+
+base_o30 as(
+  select 
+  documento,
+  date_trunc(data_referencia,month) as ReferenceDate,
+  data_referencia,
+  saldo_over30,
+  rating_concessao,
+  valor_desembolsado,
+  from `dataplatform-prd.credit_policy_studies.credit_performance`
+  where 1=1
+  and mob = 3
+),
+
+base_o30_last as(
+  select 
+  *
+  from base_o30 
+  qualify row_number() over(partition by documento, ReferenceDate order by data_referencia desc) =1
+),
+
+base_o30_agosto as(
+  select 
+  *
+  from base_doc_stone a
+  left join base_o30_last b
+  on a.CustomerDOcument = b.documento
+  where b.ReferenceDate = '2025-11-01'
+)
+
+select 
+safe_divide(sum(saldo_over30),sum(valor_desembolsado)) as o30m3_financeiro_stone,
+APPROX_QUANTILES(rating_concessao, 2)[OFFSET(1)] AS mediana_rating_concessao_stone
+from base_o30_agosto
+

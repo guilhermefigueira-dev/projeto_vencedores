@@ -1,0 +1,109 @@
+CREATE OR REPLACE TABLE `dataplatform-nonprd.credit_negocios.concorrencia_document_month_bank` AS 
+
+WITH 
+
+total_stonecode AS (
+  SELECT AffiliationCode FROM  `dataplatform-nonprd.credit_negocios.concorrencia_domicilio_bancario` 
+  UNION DISTINCT
+  SELECT stone_code AS AffiliationCode FROM `dataplatform-nonprd.credit_negocios.concorrencia_stonecode_tpv`
+),
+
+df_months AS (
+  SELECT 
+    month_date, FORMAT_DATE('%m-%Y', month_date) as month_year
+  FROM 
+    UNNEST(GENERATE_DATE_ARRAY('2016-01-01', '2025-11-01', INTERVAL 1 MONTH)) AS month_date
+),
+
+panel_stonecode_month AS (
+  SELECT 
+  s.AffiliationCode,
+  m.month_date, 
+  m.month_year
+  FROM total_stonecode AS s
+  CROSS JOIN df_months AS m
+),
+
+base_domicilio AS (
+  SELECT 
+  AffiliationCode, 
+  DocumentNumber,
+  FORMAT_DATE('%m-%Y', DATE_TRUNC(DATE(ExecutionDate), MONTH)) AS month_year, 
+  Bank
+  FROM `dataplatform-nonprd.credit_negocios.concorrencia_domicilio_bancario`
+  QUALIFY ROW_NUMBER() OVER (
+    PARTITION BY AffiliationCode, DATE_TRUNC(DATE(ExecutionDate), MONTH) 
+    ORDER BY ExecutionDate DESC
+  ) = 1
+),
+
+panel_stonecode_month_dom AS(
+  SELECT 
+  a.AffiliationCode, 
+  a.month_date, 
+  a.month_year, 
+  b.Bank
+  FROM panel_stonecode_month AS a
+  LEFT JOIN base_domicilio AS b
+  ON a.AffiliationCode = b.AffiliationCode 
+  AND a.month_year = b.month_year
+),
+
+panel_stonecode_month_dom_ AS (
+  SELECT *,
+  LAST_VALUE(Bank IGNORE NULLS) OVER (
+    PARTITION BY AffiliationCode
+    ORDER BY month_date 
+    ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS Bank_adj
+  FROM panel_stonecode_month_dom
+),
+
+panel_stonecode_month_dom_tpv_ AS(
+  SELECT 
+  a.AffiliationCode, 
+  a.month_date, 
+  a.month_year, 
+  a.Bank_adj, 
+  b.total_amount, 
+  b.qtd_transacoes
+  FROM panel_stonecode_month_dom_ AS a
+  LEFT JOIN `dataplatform-nonprd.credit_negocios.concorrencia_stonecode_tpv` AS b
+  ON a.AffiliationCode = b.stone_code AND a.month_year = FORMAT_DATE('%m-%Y', DATE_TRUNC(DATE(b.reference_month), MONTH))
+),
+
+panel_stonecode_month_dom_tpv_doc AS (
+  SELECT 
+  a.AffiliationCode, 
+  a.month_date, 
+  a.month_year, 
+  a.Bank_adj, 
+  a.total_amount, 
+  a.qtd_transacoes, 
+  b.DocumentNumber
+  FROM panel_stonecode_month_dom_tpv_ AS a
+  LEFT JOIN `dataplatform-prd.client_affiliation_open.vw_merchant` AS b
+  using(AffiliationCode)
+),
+
+panel_stonecode_month_dom_tpv_doc_agg as(
+  SELECT 
+    DocumentNumber,
+    month_year,
+    month_date AS complete_date,
+    Bank_adj,
+    SUM(total_amount) AS tpv_total,
+    SUM(qtd_transacoes) AS transacoes_total
+  FROM panel_stonecode_month_dom_tpv_doc
+  WHERE DocumentNumber IS NOT NULL
+  AND LENGTH(DocumentNumber) = 14  -- Filtra apenas Documentos com 14 caracteres
+  GROUP BY 
+    DocumentNumber,
+    month_year,
+    month_date,
+    Bank_adj
+)
+
+select 
+* 
+from panel_stonecode_month_dom_tpv_doc_agg
+

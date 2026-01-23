@@ -1,4 +1,4 @@
-with
+with 
 
 base_if AS (
   SELECT *,
@@ -58,6 +58,7 @@ select
 IF_adj,
 flag_operacao,
 avg(CreditRating_num) as media_rating,
+APPROX_QUANTILES(CreditRating_num, 2)[OFFSET(1)] AS mediana_rating,
 count(*) as n
 from base_if_scr_rating
 where 1=1
@@ -65,4 +66,5 @@ and CreditRating_num > 0
 and Credito is not null
 group by IF_adj,flag_operacao
 order by IF_adj,flag_operacao
+
 

@@ -1,0 +1,113 @@
+with
+
+base_comm as(
+  SELECT
+      id,
+      document,
+      partition_date AS data_envio,
+      journey_name,
+      trail_name,
+      communication_name,
+      marca,
+      channel,
+
+      -- enviados
+      IF(sent = TRUE OR viewed = TRUE OR product_mentioned = TRUE OR secundary_button_clicked = TRUE OR sent_treated = TRUE, TRUE, FALSE) AS sent,
+      
+      -- entregues
+    CASE
+      WHEN channel IN ('email')              AND delivered = TRUE THEN TRUE  
+      WHEN channel IN ('sms')                AND delivered = TRUE THEN TRUE 
+      WHEN channel IN ('whatsapp')           AND delivered = TRUE THEN TRUE
+      WHEN channel IN ('push')               THEN NULL
+      WHEN channel IN ('gaveta de ofertas')  THEN NULL
+      WHEN channel IN ('visita')             AND executed = TRUE THEN TRUE
+      WHEN channel IN ('agente virtual')     AND executed = TRUE THEN TRUE
+      WHEN channel IN ('rentabilização')     THEN TRUE
+      WHEN channel IN ('front rc')           AND product_mentioned = TRUE THEN TRUE
+      WHEN channel IN ('pos')                AND delivered = TRUE THEN TRUE
+      WHEN channel IN ('alert - home')       AND viewed = TRUE THEN TRUE
+      WHEN channel IN ('bottom sheet home', 'bottom sheet - home', 'bottom sheet') AND marca = 'stone' AND viewed = TRUE THEN TRUE
+      WHEN channel IN ('bottom sheet home', 'bottom sheet - home', 'bottom sheet') AND marca = 'ton' AND delivered = TRUE THEN TRUE
+      WHEN channel IN ('fullpage overlay', 'fullpage overlay - home','full page') AND viewed = TRUE THEN TRUE
+      WHEN channel IN ('trava tela') AND (delivered = TRUE) THEN TRUE  
+      WHEN channel IN ('full screen modal') AND delivered = TRUE THEN TRUE
+      WHEN channel IN ('modal', 'modal home') AND viewed = TRUE THEN TRUE
+      WHEN channel IN ('inapp') AND delivered = TRUE THEN TRUE
+      WHEN channel IN ('banner', 'banner top home', 'banner top - home', 'banner top', 'banner bottom - home', 'banner bottom', 'credit - home banner', 'credit - banner') AND (viewed = TRUE OR sent = TRUE) THEN TRUE
+      ELSE FALSE
+    END AS entregues,
+
+      -- interacoes
+    CASE
+      WHEN channel IN ('email')              AND opened = TRUE THEN TRUE  
+      WHEN channel IN ('whatsapp')           AND opened = TRUE THEN TRUE
+      WHEN channel IN ('push')               AND opened = TRUE THEN TRUE
+      WHEN channel IN ('gaveta de ofertas')  AND clicked = TRUE THEN TRUE    
+      WHEN channel IN ('visita')             AND executed = TRUE AND td_reached = TRUE THEN TRUE
+      WHEN channel IN ('agente virtual')     AND executed = TRUE AND td_reached = TRUE THEN TRUE
+      WHEN channel IN ('pos')                AND opened = TRUE THEN TRUE
+      WHEN channel IN ('alert - home')       AND clicked = TRUE THEN TRUE
+      WHEN channel IN ('bottom sheet home', 'bottom sheet - home') AND primary_button_clicked = TRUE THEN TRUE
+      when channel in ('bottom sheet', 'full page', 'trava tela') and clicked_treated = true then true
+      WHEN channel IN ('fullpage overlay', 'fullpage overlay - home') AND clicked = TRUE THEN TRUE
+      WHEN channel IN ('full screen modal') AND clicked = TRUE THEN TRUE
+      WHEN channel IN ('modal', 'modal home') AND clicked = TRUE THEN TRUE
+      WHEN channel IN ('inapp') AND clicked = TRUE THEN TRUE
+      WHEN channel IN ('banner', 'banner top home', 'banner top - home', 'banner top', 'banner bottom - home', 'banner bottom', 'credit - home banner', 'credit - banner') AND clicked = TRUE THEN TRUE
+      ELSE FALSE
+    END AS interacoes,
+
+    FROM `dataplatform-prd.smb_crm_analytics.cross_customer_communication_funnel`
+
+  where product_1 = 'capital de giro'
+  and partition_date >= '2026-01-01'
+  and trail_name = 'credito-vendido-clientes-vencedores'
+  AND platform IN ('central', 'crm', 'marketingcloud', 'sendgrid', 'admin', 'amplitude', 'campaign_customers','firebase')
+  AND nature = 'marketing'
+  AND team NOT IN ('pf','aquisição', 'logística')
+  AND (responsible_team_name like '%CRM%' OR responsible_team_name IS NULL)
+  AND lower(coalesce(journey_name, '')) NOT LIKE '%bpf%'
+),
+
+base_comm_rct as (
+  select 
+  * 
+  from `dataplatform-prd.credit_negocios.20260115_rctwinners` a 
+  left join base_comm b
+  on a.Customerdocument = b.document
+),
+
+base_bot AS (
+  SELECT 
+  *
+  from `dataplatform-prd.credit_business_intelligence.tbl_business_offer_tracker` 
+  qualify row_number() over(partition by CustomerDocument order by DataSubidaOferta desc) = 1
+),
+
+base_comm_rct_bot as(
+  select 
+  *
+  from base_comm_rct a
+  left join base_bot
+  using(CustomerDocument)
+)
+
+select 
+channel,
+tratamento,
+data_envio,
+count(*) as n_comunicacoes,
+countif(sent = true) as n_comunicacoes_sent,
+countif(entregues = true) as n_comunicacoes_entregues,
+countif(interacoes = true) as n_comunicacoes_interacoes,
+countif(Status = 'Accepted') as n_ofertas_aceitas,
+countif(Status = 'Available') as n_ofertas_disponiveis,
+countif(Status = 'Cancelled') as n_ofertas_canceladas,
+countif(Status = 'Expired') as n_ofertas_expiradas,
+from base_comm_rct_bot
+where 1=1 
+--and trail_name is not null
+group by channel, tratamento, data_envio
+order by channel, tratamento, data_envio
+

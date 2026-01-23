@@ -1,0 +1,34 @@
+-- Código que linka cada código de afiliação (máquininha, por ex) com o documento do estabelecimento em que é usado e com a informação também de qual o banco definido como domicílio bancário daquele código
+
+CREATE OR REPLACE TABLE `dataplatform-nonprd.credit_negocios.concorrencia_domicilio_bancario` AS 
+
+WITH 
+
+eligible AS (
+  SELECT DISTINCT
+    vm.AffiliationCode,
+    vm.DocumentNumber
+  FROM `dataplatform-prd.client_affiliation_open.vw_merchant` vm
+),
+
+latest_bank AS (
+  SELECT
+    AffiliationCode,
+    Bank,
+    ExecutionDate
+  FROM `dataplatform-prd.client_affiliation_open.bank_account`
+  WHERE CardBrand = "Visa"
+  QUALIFY ROW_NUMBER() OVER (
+    PARTITION BY AffiliationCode, date_trunc(ExecutionDate,month)
+    ORDER BY ExecutionDate DESC
+  ) = 1
+)
+
+SELECT
+  e.AffiliationCode,
+  e.DocumentNumber,
+  lb.Bank,
+  lb.ExecutionDate
+FROM eligible e
+INNER JOIN latest_bank lb
+ON lb.AffiliationCode = e.AffiliationCode

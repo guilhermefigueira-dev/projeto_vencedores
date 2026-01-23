@@ -1,0 +1,12 @@
+concorrencia_domicilio_bancario_affiliationcode.txt (base `dataplatform-nonprd.credit_negocios.concorrencia_domicilio_bancario`): Código que linka cada código de afiliação (máquininha, por ex) com o documento do estabelecimento em que é usado e com a informação também de qual o banco definido como domicílio bancário daquele código
+
+concorrencia_stonecode_tpv.txt (base `dataplatform-nonprd.credit_negocios.concorrencia_stonecode_tpv`): Código que calcula o quanto que cada stonecode passou de TPV por mês
+
+concorrencia_document_month_bank.txt (base `dataplatform-nonprd.credit_negocios.concorrencia_document_month_bank`): Código que cria a base de TPV por banco, mês e documento
+
+
+
+
+
+
+
