@@ -28,15 +28,15 @@ base_if_scr AS (
 ),
 
 base_modelo AS(
-select 
-created_at,
-data_application_score_rating,
-document,
-elegible,
-rating_value,
-reasons_not_elegible_translation 
-from `dataplatform-prd.credit_negocios.New_Credit_Policy_Output`
-qualify row_number() over(partition by document, date_trunc(created_at, month) order by created_at desc) = 1
+  select 
+  created_at,
+  data_application_score_rating,
+  document,
+  elegible,
+  rating_value,
+  reasons_not_elegible_translation 
+  from `dataplatform-prd.credit_negocios.New_Credit_Policy_Output`
+  qualify row_number() over(partition by document, date_trunc(created_at, month) order by created_at desc) = 1
 ),
 
 base_modelo_matriz as(
@@ -54,7 +54,7 @@ base_if_scr_modelo as(
   from base_if_scr as a
   inner join base_modelo_matriz as b
   on a.RootDocumentNumber = b.RootDocumentNumber
-  and date(a.month_year) = date(date_trunc(b.created_at, month))
+  and date(a.month_year) = date_add(date_trunc(date(b.created_at), month), interval 1 month)
 ),
 
 base_if_scr_modelo_filter as(
@@ -63,19 +63,28 @@ base_if_scr_modelo_filter as(
   from base_if_scr_modelo
   where 1=1
   and desembolso_scr <= 50000000
-)
+),
 
-SELECT 
+base_if_scr_modelo_filter_agg as(
+  SELECT 
     IF_adj, 
     reasons_not_elegible_translation, 
-    elegible,
     COUNT(*) AS contagem,
     SUM(desembolso_scr) as soma_desembolso_scr
-FROM 
-    base_if_scr_modelo_filter
-GROUP BY 
-    1, 2, 3
-ORDER BY 
-    IF_adj ASC, 
-    contagem DESC,
-    elegible DESC
+  FROM 
+      base_if_scr_modelo_filter
+  where 1=1
+  and reasons_not_elegible_translation != ''
+  and IF_adj in ('Pagseguro','Santander','C6 Bank','Nubank','Banco Inter','Mercado Pago','Banco do Brasil','Bradesco','Caixa','Cooperativas','Itaú','Outros')
+  GROUP BY 
+      1, 2
+  ORDER BY 
+      IF_adj ASC, 
+      contagem DESC
+)
+
+select 
+*
+from base_if_scr_modelo_filter_agg
+where 1=1
+and contagem > 10
