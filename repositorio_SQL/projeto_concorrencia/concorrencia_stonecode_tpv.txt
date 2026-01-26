@@ -6,7 +6,7 @@ SELECT
   stone_code,
   DATE_TRUNC(reference_date, MONTH) AS reference_month,
   SUM(amount) AS total_amount,
-  COUNT(1) AS qtd_transacoes
+  SUM(transaction_qty) AS qtd_transacoes
 FROM `dataplatform-treated-prod.acquirer_core.tpv`
 WHERE reference_date IS NOT NULL
 GROUP BY
