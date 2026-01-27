@@ -76,6 +76,8 @@ base_principalidade_scr_aggIF AS (
     IF_adj,
     esteira,
     COUNT(*) OVER(PARTITION BY IF_adj, esteira) AS n_operacoes_scr,
+    COUNTIF(taxa_scr is not null) OVER(PARTITION BY IF_adj, esteira) as contagem_taxascr_notnull,
+    COUNTIF(prazo_scr is not null) OVER(PARTITION BY IF_adj, esteira) as contagem_prazoscr_notnull,
     SUM(desembolso_scr) OVER(PARTITION BY IF_adj, esteira) AS desembolso_total_scr,
     AVG(desembolso_scr) OVER(PARTITION BY IF_adj, esteira) AS desembolso_medio_scr,
     AVG(CreditRating_num) OVER(PARTITION BY IF_adj, esteira) AS rating_medio,
@@ -114,7 +116,9 @@ b.desembolso_total_scr,
 b.desembolso_medio_scr,
 b.prazo_medio_scr,
 b.taxa_media_scr,
-b.taxa_mediana_scr
+b.taxa_mediana_scr,
+b.contagem_taxascr_notnull,
+b.contagem_prazoscr_notnull
 FROM cross_esteira_bancos AS a
 LEFT JOIN base_principalidade_scr_aggIF AS b
 ON a.IF_adj = b.IF_adj
