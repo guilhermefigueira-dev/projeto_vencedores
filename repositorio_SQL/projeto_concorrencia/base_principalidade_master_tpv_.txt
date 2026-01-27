@@ -1,0 +1,89 @@
+with 
+
+base_if AS (
+  SELECT *,
+  SUBSTR(document,1,8) AS RootDocumentNumber,
+  case when stone_acquirer_active_30d = true or ton_acquirer_active_30d = true then 1 else 0 end as flag_ativo 
+  FROM `dataplatform-nonprd.credit_negocios.concorrencia_base_if`
+  WHERE 1=1 
+  AND soma_trimestral > 0
+  AND month_year >= "2025-01-01"
+),
+
+base_if_bot as (
+  select a.document, a.RootDocumentNumber, a.month_year,a.IF_adj, a.flag_ativo, t.maximumTerm AS prazo_stone, t.InterestRate as taxa_stone, t.CreditLimit as limite_stone, t.Status, t.DataSubidaOferta, CASE WHEN t.LoanDisbursementDate IS NOT NULL THEN 1 ELSE 0 END AS flag_desembolsou_stone
+  from base_if a
+  inner join `dataplatform-prd.credit_business_intelligence.tbl_business_offer_tracker` t
+  on a.document = t.CustomerDocument
+  AND DATE_TRUNC(a.month_year, MONTH) = DATE_TRUNC(t.DataSubidaOferta, MONTH)
+  WHERE 1=1
+  AND EXTRACT(YEAR FROM t.DataSubidaOferta) = 2025
+),
+
+base_if_bot_ultmes AS (
+  select * EXCEPT(Status,DataSubidaOferta,rn)
+  from (select *,ROW_NUMBER() OVER(PARTITION BY document,month_year ORDER BY DataSubidaOferta DESC) AS rn
+        from base_if_bot)
+  where rn = 1
+),
+
+base_if_bot_scr AS (
+  SELECT b.*, a.desembolso_scr, a.prazo_scr, a.taxa_scr
+  FROM (
+    SELECT DISTINCT 
+      RootDocumentNumber AS rdn,
+      ReferenceDate AS dat,
+      Prazo_Operacao as prazo_scr,
+      TaxaImplicita as taxa_scr,
+      Credito as desembolso_scr
+    FROM `dataplatform-prd.credit_negocios.dsh_tbl_SCR_Variation_KGiro_Treated`
+    WHERE ReferenceDate >= "2025-01-01"
+  ) AS a
+  INNER JOIN base_if_bot_ultmes AS b
+  ON a.rdn = b.RootDocumentNumber
+  AND a.dat = b.month_year
+),
+
+base_if_bot_scr_manipulada AS(
+  SELECT IF_adj,RootDocumentNumber, month_year, 
+  flag_desembolsou_stone,flag_ativo,
+  desembolso_scr,
+  limite_stone - desembolso_scr as diferenca_limite,
+  prazo_stone - prazo_scr AS diferenca_prazo,
+  taxa_stone - taxa_scr AS diferenca_taxa,
+  FROM base_if_bot_scr
+),
+
+base_documentos_master as(
+  select distinct
+  substr(document,1,8) as RootDocumentNumber
+  from `dataplatform-prd.credit_negocios.New_Credit_Policy_Output`
+  where 1=1
+  and data_metadata_origem_faturamento_6m_priorizado = 'MASTERCARD'
+  and date_trunc(created_at,month) in ('2025-11-01')
+  and engine_process_intermediarias_csv6_publico_fim not in ('Público Desafiante SCR','Público CSV6.X - Limite SCR')
+),
+
+base_documentos_master_filtrada as(
+  select *,
+  case when IF_adj in ('Pagseguro','Santander','C6 Bank','Nubank','Banco Inter','Mercado Pago') then 1 else 0 end as flag_ap
+  from base_if_bot_scr_manipulada a
+  inner join base_documentos_master b
+  using(RootDocumentNumber)
+  where 1=1
+  and desembolso_scr <= 500000
+  and IF_adj in ('Banco do Brasil','Bradesco','Caixa','Cooperativas','Itaú','Outros','Pagseguro','Santander','C6 Bank','Nubank','Banco Inter','Mercado Pago')
+)
+
+select 
+flag_ap,
+month_year,
+avg(diferenca_limite) as media_diferenca_limite,
+APPROX_QUANTILES(diferenca_limite, 2)[OFFSET(1)] AS mediana_diferenca_limite,
+count(*) as n_operacoes
+from base_documentos_master_filtrada
+where 1=1
+and flag_ativo = 1
+and flag_desembolsou_stone = 0
+group by flag_ap,month_year
+order by flag_ap,month_year
