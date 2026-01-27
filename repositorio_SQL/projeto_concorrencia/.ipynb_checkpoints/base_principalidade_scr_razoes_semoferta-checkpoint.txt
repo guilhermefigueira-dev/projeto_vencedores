@@ -9,9 +9,14 @@ base_if AS (
   AND month_year >= "2025-01-01"
   AND (stone_acquirer_active_30d = true OR ton_acquirer_active_30d = true)
 ),
+--8647623
 
 base_if_scr AS (
-  SELECT b.*, a.desembolso_scr, a.prazo_scr, a.taxa_scr
+  SELECT 
+  b.*, 
+  a.desembolso_scr, 
+  a.prazo_scr, 
+  a.taxa_scr
   FROM (
     SELECT DISTINCT 
       RootDocumentNumber AS rdn,
@@ -26,6 +31,7 @@ base_if_scr AS (
   ON a.rdn = b.RootDocumentNumber
   AND a.dat = b.month_year
 ),
+--191825
 
 base_modelo AS(
   select 
@@ -38,6 +44,7 @@ base_modelo AS(
   from `dataplatform-prd.credit_negocios.New_Credit_Policy_Output`
   qualify row_number() over(partition by document, date_trunc(created_at, month) order by created_at desc) = 1
 ),
+--252858084
 
 base_modelo_matriz as(
   select 
@@ -47,7 +54,9 @@ base_modelo_matriz as(
   where 1=1
   and substr(document,9,4) = '0001'
 ),
+--75147129
 
+--Junta a informação do SCR em (t) com a informação do modelo interno em (t-1)
 base_if_scr_modelo as(
   select 
   *
@@ -56,14 +65,16 @@ base_if_scr_modelo as(
   on a.RootDocumentNumber = b.RootDocumentNumber
   and date(a.month_year) = date_add(date_trunc(date(b.created_at), month), interval 1 month)
 ),
+--170754
 
 base_if_scr_modelo_filter as(
   select
   *
   from base_if_scr_modelo
   where 1=1
-  and desembolso_scr <= 50000000
+  and desembolso_scr <= 500000
 ),
+--165633
 
 base_if_scr_modelo_filter_agg as(
   SELECT 
